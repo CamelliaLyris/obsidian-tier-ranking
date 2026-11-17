@@ -159,8 +159,10 @@ class AssetLibraryModal extends Modal {
   draw() {
     if (!this.grid) return;
     this.grid.empty();
+    const materialLibrary = this.app.plugins?.getPlugin?.('material-library');
+    const roots = [this.plugin.options.assetFolder, materialLibrary?.options?.root, ...(materialLibrary?.options?.sources || [])].filter(root => typeof root === 'string' && root);
     const files = this.plugin.app.vault.getFiles().filter(file => IMAGE_EXTENSIONS.includes(file.extension.toLowerCase()) &&
-      (this.allImages || file.path.startsWith(this.plugin.options.assetFolder + '/')) && file.path.toLowerCase().includes(this.query.toLowerCase()))
+      (this.allImages || roots.some(root => file.path.startsWith(root + '/'))) && file.path.toLowerCase().includes(this.query.toLowerCase()))
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }));
     if (!files.length) this.grid.createEl('p', { text: '还没有匹配的图片。点击「导入图片」，或勾选「显示整个笔记库的图片」。', cls: 'tr-library-hint' });
     if (this.confirm) { this.confirm.setText(`添加所选图片（${this.selected.size}）`); this.confirm.disabled = this.saving || !this.selected.size; }
@@ -504,9 +506,6 @@ module.exports = class TierRankingPlugin extends Plugin {
       toolbar.createEl('strong', { text: data.title });
       button(toolbar, '修改标题', '修改榜单标题', () => new EditModal(this.app, '榜单标题', [{ key: 'title', label: '标题', value: data.title, required: true }], v => save(() => { data.title = v.title; })).open());
       button(toolbar, '＋ 添加条目', '添加待评级条目', () => editItem());
-      button(toolbar, '素材库', '从素材库批量添加图片到待评级区', () => this.openLibrary(paths => save(() => {
-        for (const image of paths) data.unranked.push({ id: uid(), text: '', image });
-      }), true));
       button(toolbar, '⚙ 设置', '调整从夯到拉的默认设置与显示', () => this.openSettings());
       button(toolbar, expanded ? '收起榜单' : '放大榜单', expanded ? '返回笔记内查看' : '在大窗口中查看与编辑榜单', expand);
       const exportButton = button(toolbar, exporting ? '正在导出…' : '导出图片', '预览、调整宽度并保存或复制透明 PNG', async () => {

@@ -1,7 +1,7 @@
 {
   "id": "tier-ranking",
   "name": "从夯到拉",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "minAppVersion": "1.4.0",
   "description": "在 Markdown 笔记中创建从夯到拉的拖拽分级榜，支持图片与自动保存。",
   "author": "Afool",
