@@ -8,7 +8,7 @@ const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice
 const fresh = (tiers = DEFAULT_TIERS) => ({ version: 1, title: '从夯到拉', tiers: tiers.map(([name, color]) => ({ id: uid(), name, color, items: [] })), unranked: [] });
 const fence = data => '```tier-ranking\n' + JSON.stringify(data, null, 2) + '\n```';
 const BOARD_FOLDER = '从夯到拉';
-const ASSET_FOLDER = BOARD_FOLDER + '/素材库';
+const ASSET_FOLDER = '素材库';
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'];
 const DEFAULT_OPTIONS = { useBoardFolder: true, boardFolder: BOARD_FOLDER, assetFolder: ASSET_FOLDER,
   defaultScale: 125, cardWidth: 144, imageHeight: 120, imageFit: 'contain', showNames: true,
@@ -18,12 +18,14 @@ function folderPath(value) {
   if (typeof value !== 'string') throw new Error('文件夹路径不能为空');
   const result = value.trim().replace(/\\/g, '/');
   if (!result || result.split('/').some(part => !part || part.startsWith('.') || /[:*?"<>|\x00-\x1f]/.test(part) || /[. ]$/.test(part)))
-    throw new Error('请使用库内相对文件夹路径，例如「从夯到拉/素材库」，不要包含隐藏文件夹、空段或特殊字符');
+    throw new Error('请使用库内相对文件夹路径，例如「从夯到拉」，不要包含隐藏文件夹、空段或特殊字符');
   return normalizePath(result);
 }
 function checkedOptions(raw) {
   const value = Object.assign(copy(DEFAULT_OPTIONS), raw);
-  value.boardFolder = folderPath(value.boardFolder); value.assetFolder = folderPath(value.assetFolder);
+  value.boardFolder = folderPath(value.boardFolder);
+  // Legacy assetFolder is kept only to find existing images, never as the new import destination.
+  try { value.assetFolder = folderPath(value.assetFolder); } catch (_) { value.assetFolder = ASSET_FOLDER; }
   for (const [key, min, max] of [['defaultScale', 75, 200], ['cardWidth', 80, 360], ['imageHeight', 60, 360]]) {
     if (!Number.isInteger(Number(value[key])) || Number(value[key]) < min || Number(value[key]) > max) throw new Error(`${key} 必须在 ${min}～${max} 之间`);
     value[key] = Number(value[key]);
@@ -41,8 +43,7 @@ function renderSettings(plugin, container, onSaved, draft = copy(plugin.options)
   container.createEl('p', { text: '修改后点击底部「保存设置」。显示设置会立即应用到已打开的榜单；路径设置只影响今后的新文件，不会移动旧文件。', cls: 'tr-library-hint' });
   new Setting(container).setName('默认保存到榜单文件夹').setDesc('新建榜单时仍可单独选择。').addToggle(c => c.setValue(draft.useBoardFolder).onChange(v => draft.useBoardFolder = v));
   new Setting(container).setName('榜单文件夹').setDesc('库内相对路径，不存在时自动创建。').addText(c => c.setValue(draft.boardFolder).onChange(v => draft.boardFolder = v));
-  new Setting(container).setName('素材库文件夹').setDesc('新导入图片的存放位置；旧素材仍可通过「显示整个笔记库的图片」找到。').addText(c => c.setValue(draft.assetFolder).onChange(v => draft.assetFolder = v));
-  new Setting(container).setName('素材库默认显示所有图片').addToggle(c => c.setValue(draft.libraryAllImages).onChange(v => draft.libraryAllImages = v));
+  container.createEl('p', { text: '项目图片沿用独立「素材库」插件的本地目录，请在素材库设置中管理。未启用素材库插件时使用「素材库」目录。已有图片引用保持不变，选择图片时可临时查看整个笔记库。', cls: 'tr-library-hint' });
   container.createEl('h3', { text: '榜单显示' });
   for (const [key, label, min, max, step] of [['defaultScale', '默认缩放（%）', 75, 200, 5], ['cardWidth', '条目基础宽度（px）', 80, 360, 4], ['imageHeight', '图片基础高度（px）', 60, 360, 4]]) {
     new Setting(container).setName(label).addSlider(c => c.setLimits(min, max, step).setValue(draft[key]).setDynamicTooltip().onChange(v => draft[key] = v));
@@ -121,7 +122,7 @@ class AssetLibraryModal extends Modal {
   onOpen() {
     this.modalEl.addClass('tr-library-modal');
     this.contentEl.createEl('h2', { text: '从夯到拉 · 素材库' });
-    this.contentEl.createEl('p', { text: `导入的原图保存在「${this.plugin.options.assetFolder}」。选择已有图片不会复制或移动原文件。`, cls: 'tr-library-hint' });
+    this.contentEl.createEl('p', { text: `导入的原图保存在「${this.plugin.imageFolder()}」。目录沿用素材库插件；选择已有图片不会复制或移动原文件。`, cls: 'tr-library-hint' });
     const controls = this.contentEl.createDiv({ cls: 'tr-library-controls' });
     const search = controls.createEl('input', { type: 'search', attr: { placeholder: '搜索图片名称', 'aria-label': '搜索素材' } });
     search.addEventListener('input', () => { this.query = search.value; this.draw(); });
@@ -160,7 +161,7 @@ class AssetLibraryModal extends Modal {
     if (!this.grid) return;
     this.grid.empty();
     const materialLibrary = this.app.plugins?.getPlugin?.('material-library');
-    const roots = [this.plugin.options.assetFolder, materialLibrary?.options?.root, ...(materialLibrary?.options?.sources || [])].filter(root => typeof root === 'string' && root);
+    const roots = [this.plugin.options.assetFolder, this.plugin.imageFolder(), ...(materialLibrary?.options?.sources || [])].filter(root => typeof root === 'string' && root);
     const files = this.plugin.app.vault.getFiles().filter(file => IMAGE_EXTENSIONS.includes(file.extension.toLowerCase()) &&
       (this.allImages || roots.some(root => file.path.startsWith(root + '/'))) && file.path.toLowerCase().includes(this.query.toLowerCase()))
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }));
@@ -365,9 +366,13 @@ module.exports = class TierRankingPlugin extends Plugin {
       if (!entry || !Array.isArray(entry.children)) throw new Error(`「${current}」已被同名文件占用，请先重命名该文件`);
     }
   }
+  imageFolder() {
+    const library = this.app.plugins?.getPlugin?.('material-library');
+    return folderPath(library?.options?.root || ASSET_FOLDER);
+  }
   async importAssets(files) {
     if (!files.length) return [];
-    const assetFolder = this.options.assetFolder;
+    const assetFolder = this.imageFolder();
     await this.ensureFolder(assetFolder);
     const imported = [];
     for (const file of files) {
