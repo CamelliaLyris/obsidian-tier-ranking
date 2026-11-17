@@ -99,7 +99,7 @@ class EditModal extends Modal {
       inputs[field.key] = input;
       if (field.pick) {
         const pick = label.createEl('button', { text: '从素材库选择图片', type: 'button' });
-        pick.addEventListener('click', e => { e.preventDefault(); field.pick(path => { input.value = path; }); });
+        pick.addEventListener('click', async e => { e.preventDefault(); if (pick.disabled) return; pick.disabled = true; try { await field.pick(path => { if (input.isConnected) input.value = path; }); } catch (err) { new Notice(err.message); } finally { pick.disabled = false; } });
       }
     }
     form.createEl('button', { text: '保存', type: 'submit', cls: 'mod-cta' });
@@ -366,6 +366,14 @@ module.exports = class TierRankingPlugin extends Plugin {
       if (!entry || !Array.isArray(entry.children)) throw new Error(`「${current}」已被同名文件占用，请先重命名该文件`);
     }
   }
+  materialImagePicker() {
+    if (typeof this.app.plugins?.getPlugin?.('material-library')?.selectImage !== 'function') return null;
+    return async choose => {
+      const library = this.app.plugins?.getPlugin?.('material-library');
+      if (typeof library?.selectImage !== 'function') throw new Error('请先启用素材库插件');
+      const path = await library.selectImage(); if (path) choose(path);
+    };
+  }
   imageFolder() {
     const library = this.app.plugins?.getPlugin?.('material-library');
     return folderPath(library?.options?.root || ASSET_FOLDER);
@@ -475,7 +483,7 @@ module.exports = class TierRankingPlugin extends Plugin {
     };
     const editItem = item => new EditModal(this.app, item ? '编辑条目' : '添加条目', [
       { key: 'text', label: '名称（可选，图片可以不填名称）', value: item?.text },
-      { key: 'image', label: '图片（可选，可从素材库选择）', value: item?.image, placeholder: '选择素材或填写库内图片路径', pick: choose => this.openLibrary(choose) }
+      { key: 'image', label: '图片（可选）', value: item?.image, placeholder: '填写库内图片路径', pick: this.materialImagePicker() }
     ], values => {
       if (!values.text && !values.image) throw new Error('请填写名称或图片路径，任选一项即可');
       return save(() => { if (item) Object.assign(item, values); else data.unranked.push({ id: uid(), ...values }); });
